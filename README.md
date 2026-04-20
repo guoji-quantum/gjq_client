@@ -34,6 +34,8 @@ src/gjq_client/
 
 Requirements: `Python >= 3.10`, `Qiskit >= 2.0.0`
 
+**ONLY Qiskit 2.0+ SUPPORT NOW**
+
 ```bash
 # Install via PyPI
 pip install gjq-client
