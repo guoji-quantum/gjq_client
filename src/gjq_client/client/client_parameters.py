@@ -30,6 +30,7 @@
 
 import time
 import logging
+import base64
 from typing import Optional
 
 import requests
@@ -45,11 +46,24 @@ __all__ = ["ClientParameters"]
 
 logger = logging.getLogger(__name__)
 
+
 # 默认 API 基础地址（认证服务）
-DEFAULT_BASE_URL = "https://www.tiangongqs.com/guoji"
+#DEFAULT_BASE_URL = b"aHR0cHM6Ly93d3cudGlhbmdvbmdxcy5jb20vZ3Vvamk="  #正式环境
+DEFAULT_BASE_URL = b"aHR0cDovLzE3Mi4xNi4xMDEuMTkxOjMwMDAw"  #测试环境
 
 # 默认后端查询 API 基础地址
-DEFAULT_BACKEND_URL = "https://www.tiangongqs.com/guoji"
+#DEFAULT_BACKEND_URL = b"aHR0cHM6Ly93d3cudGlhbmdvbmdxcy5jb20vZ3Vvamk="  #正式环境
+DEFAULT_BACKEND_URL = b"aHR0cDovLzE3Mi4xNi4xMDEuMTkxOjMwMTEx"  #测试环境    
+
+
+
+def _make_base_url() -> str:
+    return base64.b64decode(DEFAULT_BASE_URL).decode()
+
+
+def _make_backend_url() -> str:
+    return base64.b64decode(DEFAULT_BACKEND_URL).decode()
+
 
 # Token 提前刷新的缓冲时间（秒）
 TOKEN_REFRESH_BUFFER = 60
@@ -62,14 +76,12 @@ class ClientParameters:
     包括首次获取、过期检测和自动刷新。
 
     Attributes:
-        base_url: 认证 API 基础地址。
-        backend_url: 后端查询 API 基础地址。
         access_token: 当前有效的 JWT access_token，未认证时为 None。
 
     Args:
         api_key: 用户的 API Key。
-        base_url: 认证 API 基础地址，默认使用 DEFAULT_BASE_URL。
-        backend_url: 后端查询 API 基础地址，默认使用 DEFAULT_BACKEND_URL。
+        base_url: 认证 API 基础地址覆盖，默认 None（使用内置地址）。
+        backend_url: 后端查询 API 基础地址覆盖，默认 None（使用内置地址）。
         channel: 平台渠道名称。
 
     Raises:
@@ -80,16 +92,17 @@ class ClientParameters:
         self,
         api_key: str,
         channel: str = "gjq_cloud",
-        base_url: str = DEFAULT_BASE_URL,
-        backend_url: str = DEFAULT_BACKEND_URL,
+        base_url: Optional[str] = None,
+        backend_url: Optional[str] = None,
     ):
         if not api_key or not api_key.strip():
             raise ConfigurationError("api_key cannot be empty (api_key 不能为空)")
-        
+
         self.channel: str = channel
         self._api_key: str = api_key.strip()
-        self.base_url: str = base_url.rstrip("/")
-        self.backend_url: str = backend_url.rstrip("/")
+
+        self._base_override = base_url.rstrip("/") if base_url else None
+        self._backend_override = backend_url.rstrip("/") if backend_url else None
 
         # JWT token 相关状态
         self.access_token: Optional[str] = None
@@ -113,7 +126,7 @@ class ClientParameters:
             NetworkError: 网络连接失败。
             APIError: API 返回业务错误。
         """
-        url = f"{self.base_url}/user/api/tokens"
+        url = f"{self._base_url()}/user/api/tokens"
         logger.info("Authenticating (正在认证)... (POST /user/api/tokens)")
 
         try:
@@ -222,7 +235,7 @@ class ClientParameters:
         Returns:
             完整的认证接口 URL，如 "auth_url/user/api/tokens"。
         """
-        return f"{self.base_url}/user/api/tokens"
+        return f"{self._base_url()}/user/api/tokens"
 
     @property
     def api_key(self) -> str:
@@ -242,7 +255,7 @@ class ClientParameters:
             包含 base_url, api_key(脱敏), token 状态的字典。
         """
         return {
-            "base_url": self.base_url,
+            "base_url": "<hidden>",
             "api_key": self.api_key,
             "channel": self.channel,
             "has_token": self.access_token is not None,
@@ -254,6 +267,12 @@ class ClientParameters:
     # ==========================================================================
     # 内部方法
     # ==========================================================================
+
+    def _base_url(self) -> str:
+        return self._base_override or _make_base_url()
+
+    def _backend_url(self) -> str:
+        return self._backend_override or _make_backend_url()
 
     @staticmethod
     def _unwrap_response(response: requests.Response) -> dict:

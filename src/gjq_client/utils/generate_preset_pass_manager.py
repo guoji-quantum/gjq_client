@@ -108,6 +108,11 @@ def generate_preset_pass_manager(
     # 处理 target 和 backend 的位置参数。
     # 这使得可以通过 `generate_preset_pass_manager(backend.target)` 
     # 为指定 target 快速生成默认的 Pass Manager。
+
+    if backend is not None and backend.configuration().simulator:
+        basis_gates = backend.configuration().basis_gates
+        backend=None
+
     if isinstance(optimization_level, Target):
         target = optimization_level
         optimization_level = 2

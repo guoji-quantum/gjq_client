@@ -210,5 +210,30 @@ def circuit_to_json_layers(circuit: QuantumCircuit):
             res["steps"].append({"index": layer_idx, "gates": gates_in_layer})
     qubit_numbs = list(qubit_numbs)        
     res["quantum-num"] = max(qubit_numbs)+1 if len(qubit_numbs)>0 else 0
+    res['qubit_num']=len(qubit_numbs)
+    res["measure-position"] = extract_measure_positions(res["steps"])
 
     return res
+
+
+def extract_measure_positions(steps: list[dict]) -> list[int]:
+    """从 payload 的 steps 中提取所有被测量的 qubit ID 列表。
+
+    遍历所有 step 中的 gate，收集 measure / measure-* 测量门的 targets，
+    返回去重且排序后的 qubit ID 列表。
+
+    用于模拟器后端（如 FAS-CPU、SAS-CPU）提交任务时自动生成 measure-position 字段。
+
+    Args:
+        steps: payload 中的 steps 列表，每个元素包含 "gates" 子列表。
+
+    Returns:
+        排序后的被测量 qubit ID 列表，例如 [0, 1, 2, 3]。
+    """
+    positions: set[int] = set()
+    for step in steps:
+        for gate in step.get("gates", []):
+            gate_name = gate.get("name", "")
+            if gate_name == "measure" or gate_name.startswith("measure-"):
+                positions.update(gate.get("targets", []))
+    return sorted(positions)

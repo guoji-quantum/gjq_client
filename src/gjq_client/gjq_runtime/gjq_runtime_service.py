@@ -10,8 +10,6 @@ from .runtime_job import RuntimeJob, API_TO_JOB_STATUS
 import os
 import json
 
-from ..client.client_parameters import DEFAULT_BASE_URL
-
 logger = logging.getLogger(__name__)
 
 _DEFAULT_ACCOUNT_CONFIG_JSON_FILE = os.path.join(
@@ -32,7 +30,7 @@ class GJQRuntimeService:
             self,
             channel: str | None = None,
             api_key: str | None = None,
-            url: str=DEFAULT_BASE_URL,
+            url: str | None = None,
         ) -> None:
             if channel not in ["gjq_cloud", "local", None]:
                 raise InvalidChannelError(f"Invalid channel: {channel}")

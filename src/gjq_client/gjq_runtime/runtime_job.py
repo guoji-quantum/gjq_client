@@ -36,8 +36,10 @@ def _get_expectation_value(counts, pauli_op):
             ) % 2
 
             exp_val += ((-1)**parity) * c
-
-        exp_val /= total_shots
+        if total_shots == 0:
+            exp_val = 0
+        else:
+            exp_val /= total_shots
         expectation += coeff * exp_val
     return expectation.real
 

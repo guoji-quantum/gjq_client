@@ -34,11 +34,12 @@ class Sampler():
         Args:
             backend: 运行时的后端
             options: 运行时的选项
+            amplitude_index: SAS-CPU 需要查询的振幅索引列表
         """
         self._backend = backend
         self._options = options
 
-    def run(self, circuit:QuantumCircuit, shots: int | None = 1024) -> RuntimeJob:
+    def run(self, circuit:QuantumCircuit, shots: int | None = 1024,amplitude_index: list[int] | None = None) -> RuntimeJob:
         """
             提交一个请求给 Sampler 服务。
 
@@ -50,11 +51,16 @@ class Sampler():
                 RuntimeJob类
         """
         job_id=''
+        self._amplitude_index = amplitude_index
         
         if not isinstance(circuit, QuantumCircuit):
             raise ValueError("circuit must be a QuantumCircuit")
         instructions = circuit_to_json_layers(circuit)
-        tasks={"device_name":self._backend.name,"repetitions":shots,"quantum-num":instructions.get('quantum-num'),"steps":instructions.get('steps')}
+        tasks={"device_name":self._backend.name,"repetitions":shots,**instructions}
+        if self._options:
+            tasks.update(self._options)
+        if self._amplitude_index is not None:
+            tasks["amplitude-index"] = self._amplitude_index
 
         response=self._backend._api_client.submit_task(tasks)
         job_id=response.get('instanceId')
