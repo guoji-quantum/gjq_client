@@ -81,3 +81,9 @@ print("Measurement results:", result.get("counts"))
 ## 📄 License
 
 Apache License 2.0
+
+## 📬 Contact
+
+- **Email:** <quantumcloud@tgqs.net>
+
+- **Issues:** [Submit an issue](https://github.com/guoji-quantum/gjq_client/issues/new)
