@@ -30,7 +30,8 @@ class GJQRuntimeService:
             self,
             channel: str | None = None,
             api_key: str | None = None,
-            url: str | None = None,
+            base_url: str | None = None,
+            backend_url: str | None = None
         ) -> None:
             if channel not in ["gjq_cloud", "local", None]:
                 raise InvalidChannelError(f"Invalid channel: {channel}")
@@ -38,7 +39,8 @@ class GJQRuntimeService:
                 channel = "gjq_cloud"
             self._channel = channel
             self._api_key = api_key
-            self._url = url
+            self._base_url = base_url
+            self._backend_url = backend_url
 
             self._client_params=self._discover_account_info()
             self._client = RuntimeClient(self._client_params)
@@ -50,7 +52,8 @@ class GJQRuntimeService:
         parameters={
             'channel': self._channel,
             'api_key': self._api_key,
-            'base_url': self._url
+            'base_url': self._base_url,
+            'backend_url': self._backend_url,
         }
         if self._api_key:
             os.makedirs(os.path.dirname(_DEFAULT_ACCOUNT_CONFIG_JSON_FILE), exist_ok=True)
@@ -69,14 +72,22 @@ class GJQRuntimeService:
         """
         return self._client.list_backends()
     
+    def backend_list(self):
+        return self.list_backends()
+
     def _create_backend_obj(self,backend_name):
         """
         根据后端名称获取创建backend对象
         """
+        from ..utils.exceptions import BackendNotFoundError
+        if not any(backend.get("name") == backend_name for backend in self.list_backends()):
+            raise BackendNotFoundError(f"Backend '{backend_name}' not found")
         try:
             config_dict=self._client.backend_configuration(backend_name)
             from ..utils.backend_decoder import configuration_from_server_data
             config=configuration_from_server_data(config_dict)
+        except BackendNotFoundError:
+            raise
         except Exception as e:
             logger.warning(f"Failed to get backend information (无法获取后端信息), root cause (原因是): {e}, please check if the backend name is correct (请检查后端名称是否正确)")
             return None

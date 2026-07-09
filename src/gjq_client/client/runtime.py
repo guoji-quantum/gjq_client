@@ -42,14 +42,15 @@ from gjq_client.utils.exceptions import (
     BackendOfflineError,
     JobNotFoundError,
 )
+from .backend_url_config import decrypt_url,DEFAULT_BACKEND_URL,DEFAULT_BASE_URL
 
 __all__ = ["RuntimeClient"]
 
 logger = logging.getLogger(__name__)
 
-# CPU 模拟器后端提交任务时需要 payload 中包含 measure-position 字段。
-SIMULATOR_BACKEND_NAMES = ["FAS-CPU", "SAS-CPU"]
-AMPLITUDE_INDEX_REQUIRED_BACKEND_NAMES = ["SAS-CPU"]
+# 模拟器后端提交任务时需要 payload 中包含 measure-position 字段。
+SIMULATOR_BACKEND_NAMES = ["FAS-CPU", "SAS-CPU", "SAS-GPU"]
+AMPLITUDE_INDEX_REQUIRED_BACKEND_NAMES = ["SAS-CPU", "SAS-GPU"]
 _SIMULATOR_BASIS_GATES = [
     "x",
     "y",
@@ -102,7 +103,7 @@ class RuntimeClient:
 
         # 认证服务 session（不注入 Auth，登录时尚无 token）
         self._auth_session = RetrySession(
-            base_url=client_params._base_url(),
+            base_url=client_params._base_override or decrypt_url(b'Ry8h9VgUXWpCCKQwcbEB8w==',DEFAULT_BASE_URL),
             auth=None,
             max_retries=max_retries,
             timeout=timeout,
@@ -110,7 +111,7 @@ class RuntimeClient:
 
         # 后端服务 session（注入 Auth，自动管理 Bearer token）
         self._backend_session = RetrySession(
-            base_url=client_params._backend_url(),
+            base_url=client_params._backend_override or decrypt_url(b'Ry8h9VgUXWpCCKQwcbEB8w==',DEFAULT_BACKEND_URL),
             auth=self._auth,
             max_retries=max_retries,
             timeout=timeout,
@@ -274,11 +275,9 @@ class RuntimeClient:
             ):
                 raise APIError(
                     message=(
-                        "Backend 'SAS-CPU' requires 'amplitude-index' in payload. "
+                        f"Backend '{device_name}' requires 'amplitude-index' in payload. "
                         "Pass it from the upper layer, for example "
                         "Sampler(..., amplitude_index=[0]). "
-                        "(后端 'SAS-CPU' 需要在 payload 中传入 'amplitude-index'，"
-                        "请从上层参数传入，例如 Sampler(..., amplitude_index=[0])。)"
                     )
                 )
             logger.info(
@@ -402,7 +401,10 @@ class RuntimeClient:
 
         if response.status_code == 200:
             data = self._unwrap_backend(response)
-            data["error_code"] = 0
+            error_code = data.get("error_code", data.get("errorCode"))
+            if data.get("task_state") == "failed" and not error_code:
+                error_code = 1
+            data["error_code"] = 0 if error_code is None else error_code
             return data
         else:
             return {
