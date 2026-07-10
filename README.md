@@ -1,6 +1,6 @@
 # GJQ-Client
 
-`gjq-client` is the Python SDK for CETC International Cornerstone Quantum Industry (Suzhou) Co., Ltd. (CETC-ICQ) Cloud Platform, providing Qiskit 2.0 integration with real quantum hardware.
+`gjq-client` is the Python SDK for CETC International Cornerstone Quantum Industry (Suzhou) Co., Ltd. [(CETC-ICQ) Cloud Platform](https://tiangongqs.com/), providing Qiskit 2.0 integration with real quantum hardware.
 
 ## Project Structure
 
