@@ -40,9 +40,18 @@ def configuration_from_server_data(
         return None
     try:
         _normalize_simulator_configuration(raw_config)
+        _backfill_coupling_map(raw_config)
         if raw_config.get("online_date"):
             raw_config["online_date"] = dateutil.parser.isoparse(raw_config["online_date"])
-        filter_raw_configuration(raw_config, use_fractional_gates=use_fractional_gates)
+        # Baihua's configuration is authoritative: expose the gate set exactly as
+        # returned by the service instead of applying the generic fractional-gate filter.
+        effective_use_fractional_gates = (
+            None if raw_config.get("backend_name") == "Baihua" else use_fractional_gates
+        )
+        filter_raw_configuration(
+            raw_config,
+            use_fractional_gates=effective_use_fractional_gates,
+        )
         # 延迟导入以避免与 src.backend 中的模块产生循环导入
         from ..backend import QasmBackendConfiguration
 
@@ -75,6 +84,25 @@ def _normalize_simulator_configuration(raw_config: dict) -> None:
         ]
     if raw_config.get("coupling_map") is None:
         raw_config["coupling_map"] = []
+
+
+def _backfill_coupling_map(raw_config: dict) -> None:
+    """Backfill Baihua's top-level coupling map from per-gate connectivity."""
+    if raw_config.get("backend_name") != "Baihua" or raw_config.get("coupling_map"):
+        return
+
+    edges = []
+    seen = set()
+    for gate in raw_config.get("gates") or []:
+        for coupling in gate.get("coupling_map") or []:
+            if not isinstance(coupling, (list, tuple)) or len(coupling) != 2:
+                continue
+            edge = tuple(coupling)
+            if edge not in seen:
+                seen.add(edge)
+                edges.append(list(edge))
+    if edges:
+        raw_config["coupling_map"] = edges
 
 
 def filter_raw_configuration(raw_config: dict, use_fractional_gates: bool | None = False) -> None:

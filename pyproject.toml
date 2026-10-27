@@ -5,10 +5,10 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gjq-client"
 dynamic = ["version"]
-description = "Qiskit 2.0 adapter for GuoJi Quantum Cloud Platform"
+description = "Qiskit 2.3 adapter for GuoJi Quantum Cloud Platform"
 readme = "README.md"
 license = {text = "Apache-2.0"}
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 
 authors = [
     {name = "GJQ Cloud Team"},
@@ -20,24 +20,36 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Implementation :: CPython",
     "Topic :: Scientific/Engineering",
-    "Operating System :: OS Independent",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
 ]
 
 dependencies = [
     "requests>=2.28.0",
-    "qiskit>=2.0.0",
-    "qiskit-ibm-runtime>=0.44.0",
+    "qiskit==2.3.0",
+    "qiskit-ibm-runtime==0.45.0",
     "python-dateutil>=2.8.0",
+    "cryptography>=48.0.0",
 ]
+
+[project.optional-dependencies]
+pennylane = [
+    "pennylane>=0.45.1,<0.46",
+    "pennylane-qiskit==0.45.0",
+]
+
+[project.entry-points."pennylane.plugins"]
+gjq = "gjq_client.pennylane_device:GJQDevice"
 
 [project.urls]
 Homepage = "https://www.tiangongqs.com"
-Repository = "https://github.com/GuojiQE/GuoJiQE-Client"
+Repository = "https://github.com/guoji-quantum/gjq_client"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -45,3 +57,10 @@ exclude = ["tests*", "docs*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "gjq_client._version.__version__" }
+
+[tool.setuptools.package-data]
+"gjq_client.client" = [
+    "backend_url_config.pyd",
+    "client_parameters.pyd",
+    "runtime.pyd",
+]

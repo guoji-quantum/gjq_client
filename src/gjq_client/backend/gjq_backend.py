@@ -306,7 +306,12 @@ class GJQBackend(Backend):
             api_properties = self._api_client.backend_properties(
                 self.name
             )
-            if not api_properties:
+            if not api_properties or not (
+                api_properties.get("qubits") or api_properties.get("gates")
+            ):
+                # Empty calibration responses carry no per-qubit or gate properties.
+                if datetime is None:
+                    self._properties = None
                 return None
             backend_properties = properties_from_server_data(
                 api_properties,
@@ -394,6 +399,35 @@ class GJQBackend(Backend):
         """
         raise GJQBackendError(
             "backend.run() is no longer supported."
+        )
+
+    def status(self) -> BackendStatus:
+        """Return current availability and queue information for this backend."""
+        summary = next(
+            (
+                item
+                for item in self._api_client.list_backends()
+                if item.get("name") == self.name
+            ),
+            None,
+        )
+        if summary is None:
+            return BackendStatus(
+                backend_name=self.name,
+                backend_version=self.backend_version,
+                operational=False,
+                pending_jobs=0,
+                status_msg="Backend is currently unavailable.",
+            )
+        pending_jobs = summary.get("num_of_pending_tasks", 0)
+        if type(pending_jobs) is not int or pending_jobs < 0:
+            pending_jobs = 0
+        return BackendStatus(
+            backend_name=self.name,
+            backend_version=self.backend_version,
+            operational=True,
+            pending_jobs=pending_jobs,
+            status_msg="Backend is available.",
         )
 
     def get_translation_stage_plugin(self) -> str:

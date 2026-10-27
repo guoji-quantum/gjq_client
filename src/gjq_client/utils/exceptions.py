@@ -7,6 +7,7 @@
 异常层次结构::
 
     GJQRuntimeError (SDK 基础异常)
+    ├── GJQValidationError            # 用户输入或提交载荷无效（兼容 ValueError）
     ├── AuthenticationError          # api_key 无效或认证失败
     ├── AuthorizationError           # access_token 过期或权限不足
     ├── APIError                     # 云平台 API 返回业务错误 (code != 0)
@@ -37,6 +38,7 @@
 
 __all__ = [
     "GJQRuntimeError",
+    "GJQValidationError",
     "AuthenticationError",
     "AuthorizationError",
     "APIError",
@@ -52,13 +54,51 @@ __all__ = [
     "SessionError",
     "SessionClosedError",
     "ConfigurationError",
+    "format_error_body",
 ]
 
 
 from typing import Optional
 
 
-class GJQBaseError(Exception):
+def format_error_body(body: dict) -> str:
+    """从 API 错误响应体中提取可读的错误信息。
+
+    兼容多种响应格式：
+        - 后端查询服务: ``{"msg": "..."}``
+        - 认证服务:     ``{"message": "..."}``
+        - FastAPI 校验错误 (422): ``{"detail": [...] | "..."}``
+    """
+    if not isinstance(body, dict):
+        return str(body)
+    for key in ("msg", "message", "detail"):
+        if key in body:
+            return str(body[key])
+    return str(body)
+
+
+class GJQRuntimeError(Exception):
+    """gjq-client SDK 基础异常类。
+
+    SDK 定义的认证、通信、配置、任务状态和输入校验异常均继承自此类。
+    ``GJQValidationError`` 同时继承 ``ValueError``，以保持既有调用方兼容。
+
+    Args:
+        message: 错误描述信息。
+    """
+
+    def __init__(self, message: str = ""):
+        self.message = message
+        super().__init__(self.message)
+
+
+class GJQValidationError(GJQRuntimeError, ValueError):
+    """用户输入或提交载荷不符合 SDK 契约。"""
+
+    pass
+
+
+class GJQBaseError(GJQRuntimeError):
     """基础异常类"""
 
     message: Optional[str]
@@ -105,25 +145,6 @@ class RuntimeJobFailureError(GJQBaseError):
     pass
 
 # ==============================================================================
-# 基础异常
-# ==============================================================================
-
-class GJQRuntimeError(Exception):
-    """gjq-client SDK 基础异常类。
-
-    所有 SDK 相关的异常都继承自此类，用户可以通过捕获此异常
-    来统一处理所有 SDK 错误。
-
-    Args:
-        message: 错误描述信息。
-    """
-
-    def __init__(self, message: str = ""):
-        self.message = message
-        super().__init__(self.message)
-
-
-# ==============================================================================
 # 认证相关异常
 # ==============================================================================
 
@@ -137,7 +158,18 @@ class AuthenticationError(GJQRuntimeError):
 
         raise AuthenticationError("Invalid API key")
     """
-    pass
+    def __init__(
+        self,
+        message: str = "",
+        status_code: int | None = None,
+        response_body: dict | None = None,
+    ):
+        self.status_code = status_code
+        self.response_body = response_body
+        self.business_code = (
+            response_body.get("code") if isinstance(response_body, dict) else None
+        )
+        super().__init__(message)
 
 
 class AuthorizationError(GJQRuntimeError):
@@ -166,7 +198,7 @@ class APIError(GJQRuntimeError):
     Attributes:
         message: 错误描述信息。
         status_code: HTTP 状态码（如 400, 500），可能为 None。
-        response_body: API 返回的原始响应体字典，可能为 None。
+        response_body: API 返回的原始响应体字典；非 JSON HTTP 错误时为原始文本，可能为 None。
 
     Examples::
 
@@ -181,7 +213,7 @@ class APIError(GJQRuntimeError):
         self,
         message: str = "",
         status_code: int | None = None,
-        response_body: dict | None = None,
+        response_body: dict | str | None = None,
     ):
         self.status_code = status_code
         self.response_body = response_body
@@ -316,7 +348,7 @@ class SessionClosedError(SessionError):
 # 配置相关异常
 # ==============================================================================
 
-class ConfigurationError(GJQRuntimeError):
+class ConfigurationError(GJQValidationError):
     """SDK 配置错误异常。
 
     当 SDK 初始化参数无效或配置文件格式错误时抛出，包括：

@@ -299,7 +299,8 @@ def _parse_basis_gates(basis_gates, backend):
 
 def _parse_dt(dt, backend):
     if dt is None and backend is not None:
-        dt = backend.target.dt
+        configuration_dt = getattr(backend.configuration(), "dt", None)
+        dt = configuration_dt if configuration_dt is not None else backend.target.dt
     return dt
 
 

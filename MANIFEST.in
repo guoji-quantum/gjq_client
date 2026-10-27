@@ -1,15 +1,26 @@
 include LICENSE
 include README.md
 include pyproject.toml
+include setup.py
 
 recursive-include src *.py
 
-# 排除不必要的文件
+# Exclude protected source and generated build files.
+exclude src/gjq_client/client/backend_url_config.py
+exclude src/gjq_client/client/client_parameters.py
+exclude src/gjq_client/client/runtime.py
 global-exclude __pycache__
-global-exclude *.py[cod]
-global-exclude *.so
+global-exclude *.pyc *.pyo *.c *.cpp *.pyx *.pdb
+global-exclude *.pyd *.so *.dll *.dylib
+
+# Only the supported, released extension modules are included.
+include src/gjq_client/client/backend_url_config.pyd
+include src/gjq_client/client/client_parameters.pyd
+include src/gjq_client/client/runtime.pyd
 
 prune docs
 prune tests
 prune .pytest_cache
 prune .git
+prune build
+prune dist

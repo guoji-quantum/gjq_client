@@ -3,6 +3,19 @@ build/
 dist/
 *.egg-info/
 .eggs/
+*.pyd
+*.so
+*.dll
+*.dylib
+*.c
+*.cpp
+*.pyx
+*.pdb
+
+# Released Windows x64 extension modules required by this checkout.
+!/src/gjq_client/client/backend_url_config.pyd
+!/src/gjq_client/client/client_parameters.pyd
+!/src/gjq_client/client/runtime.pyd
 
 # virtualenv
 .venv/
@@ -12,3 +25,7 @@ venv/
 .pytest_cache/
 __pycache__/
 *.pyc
+
+output/
+.env
+.env.*

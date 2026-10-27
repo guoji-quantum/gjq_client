@@ -6,10 +6,63 @@ from qiskit.circuit.library.standard_gates import (
     RZGate,
     U1Gate,
     PhaseGate,
+    get_standard_gate_name_mapping,
 )
 from qiskit.converters import circuit_to_dag
 from qiskit import QuantumCircuit
-from qiskit.qasm2 import dumps
+from qiskit.circuit import ControlFlowOp
+
+from .exceptions import GJQValidationError as ValueError
+
+
+_SUPPORTED_INSTRUCTION_NAMES = frozenset(get_standard_gate_name_mapping()) | {
+    "barrier",
+    "delay",
+    "measure",
+    "reset",
+}
+
+
+def _prepare_circuit_operations(
+    circuit: QuantumCircuit,
+    supported_operations: set[str],
+) -> QuantumCircuit:
+    """Expand defined custom gates and reject only opaque unsupported operations."""
+    allowed = _SUPPORTED_INSTRUCTION_NAMES | supported_operations
+    prepared = circuit
+    for _ in range(20):
+        unsupported = [
+            instruction.operation
+            for instruction in prepared.data
+            if not isinstance(instruction.operation, ControlFlowOp)
+            and instruction.operation.name not in allowed
+        ]
+        if not unsupported:
+            return prepared
+
+        opaque = sorted({
+            operation.name
+            for operation in unsupported
+            if operation.definition is None or not operation.definition.data
+        })
+        if opaque:
+            raise ValueError(
+                "custom or unknown operations are not supported by the target backend and "
+                f"cannot be decomposed: {opaque}"
+            )
+
+        prepared = prepared.decompose(
+            gates_to_decompose=sorted({operation.name for operation in unsupported})
+        )
+
+    unresolved = sorted({
+        instruction.operation.name
+        for instruction in prepared.data
+        if instruction.operation.name not in allowed
+    })
+    raise ValueError(
+        f"custom operation decomposition exceeded 20 levels: {unresolved}"
+    )
 
 def is_fractional_gate(gate: Instruction) -> bool:
     """测试一个门是否是连续参数门
@@ -127,10 +180,15 @@ def convert_to_instructions(circuit: QuantumCircuit) -> dict:
 
 
 
-def circuit_to_json_layers(circuit: QuantumCircuit):
+def circuit_to_json_layers(
+    circuit: QuantumCircuit,
+    supported_operations: set[str] | list[str] | tuple[str, ...] | None = None,
+):
     """
     将 QuantumCircuit 转为按时间步聚合的 JSON，使用 DAGCircuit 来确定 layer 序号
     """
+    supported = set(supported_operations or ())
+    circuit = _prepare_circuit_operations(circuit, supported)
     dag = circuit_to_dag(circuit)
     
     res = {
@@ -153,6 +211,10 @@ def circuit_to_json_layers(circuit: QuantumCircuit):
         gates_in_layer = []
         for node in layer['graph'].op_nodes():
             instr = node.op
+            if isinstance(instr, ControlFlowOp):
+                raise ValueError(
+                    f"control-flow operation '{instr.name}' is not supported by GJQ backends"
+                )
             qubit_indices = [circuit.qubits.index(q) for q in node.qargs]
             for q in node.qargs:
                 if circuit.qubits.index(q) not in qubit_numbs:
@@ -186,14 +248,16 @@ def circuit_to_json_layers(circuit: QuantumCircuit):
             # 测量 / 重置
             elif instr.name in ["measure", "reset"]:
                 if instr.name == "measure":
-                    # 获取 Clbit 所在的寄存器和寄存器内索引
-                    for reg in circuit.cregs:
-                        if cargs[0] in reg:
-                            local_index = reg[:].index(cargs[0])
-                            gate_dict["bit"] = local_index
-                            gate_dict["cBit"] = local_index
-                            gate_dict["cReg"] = reg.name  # 可选：保存寄存器名
-                            break
+                    # Anonymous Clbits have no register, but still need a stable
+                    # global index in the submitted payload.
+                    location = circuit.find_bit(cargs[0])
+                    gate_dict["bit"] = location.index
+                    gate_dict["cBit"] = location.index
+                    if location.registers:
+                        register, local_index = location.registers[0]
+                        gate_dict["bit"] = local_index
+                        gate_dict["cBit"] = local_index
+                        gate_dict["cReg"] = register.name
                 gate_dict["targets"] = qubit_indices
 
             # 根门处理
@@ -210,30 +274,5 @@ def circuit_to_json_layers(circuit: QuantumCircuit):
             res["steps"].append({"index": layer_idx, "gates": gates_in_layer})
     qubit_numbs = list(qubit_numbs)        
     res["quantum-num"] = max(qubit_numbs)+1 if len(qubit_numbs)>0 else 0
-    res['qubit_num']=len(qubit_numbs)
-    res["measure-position"] = extract_measure_positions(res["steps"])
 
     return res
-
-
-def extract_measure_positions(steps: list[dict]) -> list[int]:
-    """从 payload 的 steps 中提取所有被测量的 qubit ID 列表。
-
-    遍历所有 step 中的 gate，收集 measure / measure-* 测量门的 targets，
-    返回去重且排序后的 qubit ID 列表。
-
-    用于模拟器后端（如 FAS-CPU、SAS-CPU）提交任务时自动生成 measure-position 字段。
-
-    Args:
-        steps: payload 中的 steps 列表，每个元素包含 "gates" 子列表。
-
-    Returns:
-        排序后的被测量 qubit ID 列表，例如 [0, 1, 2, 3]。
-    """
-    positions: set[int] = set()
-    for step in steps:
-        for gate in step.get("gates", []):
-            gate_name = gate.get("name", "")
-            if gate_name == "measure" or gate_name.startswith("measure-"):
-                positions.update(gate.get("targets", []))
-    return sorted(positions)
