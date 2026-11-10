@@ -1,13 +1,13 @@
 ---
 title: Quantum Programming Framework User Guide
-date: 2026-09-21
+date: 2026-11-09
 ---
 
 ## 1. Introduction
 
 `gjq-client` is the Python client for the Guoji Quantum Cloud Platform. It provides efficient and convenient tools for building and transpiling quantum circuits, submitting jobs, and retrieving results. Whether you are new to quantum computing or engaged in scientific research and engineering, `gjq-client` enables quick access to cloud quantum resources for designing, validating, and experimenting with quantum algorithms.
-In addition to Qiskit workflows, `gjq-client 0.2.1` provides exclusive-resource execution through Sessions, thousand-qubit MPS simulation, optional PennyLane integration, and post-quantum cryptography (PQC) communication through the PQC Gateway. This guide covers installation and authentication, backend selection, circuit transpilation, Sampler and Estimator, MPS, Sessions, PennyLane, the PQC encrypted channel, and job queries.
-The platform and `gjq-client` provide access to the following computing resources. Backend availability, queue lengths, and supported job modes may change; always refer to the real-time output of `service.list_backends()`:
+In addition to Qiskit workflows, `gjq-client 0.2.2` provides exclusive-resource execution through Sessions, thousand-qubit MPS simulation, optional PennyLane integration, and post-quantum cryptography (PQC) communication through the PQC Gateway. This guide covers installation and authentication, backend selection, circuit transpilation, Sampler and Estimator, MPS, the local simulator FAS-LOCAL, Sessions, PennyLane, the PQC encrypted channel, and job queries.
+The platform and `gjq-client` provide access to the following computing resources. Cloud backend availability, queue lengths, and supported job modes may change; refer to the real-time output of `service.list_backends()` for cloud resources. The local `FAS-LOCAL` backend is not included in that query:
 
 - Full-amplitude simulators: Jiuxiao `FAS-CPU` (20) and Qilv `FAS-GPU` (32)
 
@@ -15,13 +15,15 @@ The platform and `gjq-client` provide access to the following computing resource
 
 - Tensor-network simulator: Qiyi `MPS` (1000)
 
+- Local full-amplitude simulator: `FAS-LOCAL` (20), installed with the SDK and does not contact the cloud platform
+
 - Quantum hardware: Baihua `Baihua` (156) and Guoji No. 8 `Guoji08` (20)
 
 ## 2. Installation and authentication
 
 ### 2.1 Installation
 
-`gjq-client 0.2.1` requires Python 3.12 or later and uses Qiskit 2.3. We recommend creating an isolated virtual environment to avoid conflicts between project dependencies and other packages installed in the system Python environment:
+`gjq-client 0.2.2` requires Python 3.12 or later and uses Qiskit 2.3. We recommend creating an isolated virtual environment to avoid conflicts between project dependencies and other packages installed in the system Python environment:
 
 ```powershell
 python -m venv .venv
@@ -36,9 +38,18 @@ The base installation automatically installs `requests`, Qiskit, `qiskit-ibm-run
 python -m pip install "gjq-client[pennylane]"
 ```
 
-The GitHub repository provides the public SDK source for reference. Use the PyPI distribution to run the SDK: it includes the compiled connection components required for cloud access. This source checkout does not support standalone installation or execution.
+For an editable installation when you need to modify the source code, clone the source repository and install from the repository root. Note that the GitHub repository and the package published on PyPI may differ; use the PyPI package as the reference version:
+
+```powershell
+# Clone the source repository
+git clone https://github.com/guoji-quantum/gjq_client.git
+cd gjq_client
+python -m pip install -e .
+```
 
 ### 2.2 API Key and account cache
+
+This section applies to the cloud `GJQRuntimeService`. Local simulation needs no API Key or account cache; create `LocalSimulator()` directly as shown in Section 5.4.
 
 Sign in to the [Guoji Quantum Cloud Platform](https://tiangongqs.com/cloud/circuit) to obtain an API Key:
 
@@ -83,7 +94,7 @@ After an API Key is provided for the first time, the SDK writes the account para
 
 ## 3. Backend discovery and status
 
-`list_backends()` prints and returns the currently available backends. Common fields in each returned item include `name`, `type`, `max_qubits`, `available_qubits`, `num_of_pending_tasks`, and `job_mode`. `job_mode` supports Job mode for conventional standalone jobs and Session mode for session-based execution.
+`list_backends()` prints and returns the currently available cloud backends. Common fields in each returned item include `name`, `type`, `max_qubits`, `available_qubits`, `num_of_pending_tasks`, and `job_mode`. `job_mode` supports Job mode for conventional standalone jobs and Session mode for session-based execution.
 
 ```python
 from gjq_client import GJQRuntimeService
@@ -113,9 +124,9 @@ print(backend.configuration().coupling_map)
 
 Notes:
 
-- `service.backend(name)` accepts only the name of a currently available backend.
+- `service.backend(name)` accepts the name of a currently available cloud backend, or `"FAS-LOCAL"` for the local simulator. The local route does not query cloud backends, but the service itself still requires account initialization; use `LocalSimulator()` directly for offline work.
 
-- `service.least_busy()` selects the backend with the shortest queue from all available backends. The result may be a simulator and is not guaranteed to be quantum hardware.
+- `service.least_busy()` selects the backend with the shortest queue from all available cloud backends. The result may be a simulator and is not guaranteed to be quantum hardware; `FAS-LOCAL` is never selected.
 
 - `configuration().coupling_map` combines the top-level configuration with the connectivity constraints of individual quantum gates.
 
@@ -215,7 +226,7 @@ SAS returns the single amplitude of the specified computational basis state. Do 
 
 ### 5.2 Estimator
 
-Estimator calculates expectation values of observables for a quantum state. The following example runs on Guoji No. 8, `Guoji08`. Its high-level `Estimator.run()` accepts unmeasured or partially measured input circuits and automatically normalizes terminal measurement coverage without modifying the caller's circuit.
+Estimator calculates expectation values of observables for a quantum state. The following example runs on Guoji No. 8, `Guoji08`. `Guoji04` and `Guoji08` share the native Estimator adapter: their high-level `Estimator.run()` accepts unmeasured or partially measured input circuits and automatically normalizes terminal measurement coverage without modifying the caller's circuit. Check `service.list_backends()` for backend availability.
 
 ```python
 from qiskit import QuantumCircuit
@@ -239,7 +250,9 @@ print(result["evs"])
 
 When you use string-form observables, qubit indices are interpreted as physical qubits of the submitted circuit and no logical-layout mapping is applied. Use `SparsePauliOp` if automatic logical-layout mapping is required.
 
-Guoji08 supports finite real coefficients, multi-qubit X/Y/Z Pauli words, identity terms, and named Hamiltonian sums. A multi-term `SparsePauliOp` returns one aggregate expectation under `result["evs"]["observable"]`; an explicit named observable list returns an independent value for each supplied name. Guoji08 requires positive integer `shots`; `shots=0` is available only for MPS Estimator.
+Guoji04/Guoji08 support finite real coefficients, multi-qubit X/Y/Z Pauli words, identity terms, and named Hamiltonian sums. The SDK uses full-width Pauli labels to distinguish target qubits and reconstructs named results using the original coefficients. A multi-term `SparsePauliOp` returns one aggregate expectation under `result["evs"]["observable"]`; an explicit named observable list returns an independent value for each supplied name. Guoji04/Guoji08 require positive integer `shots`; `shots=0` is available only for MPS Estimator.
+
+Direct Guoji04/Guoji08 Estimator JSON submissions through `RuntimeClient.submit_task()` must contain complete terminal measurements. The SDK locally rejects missing measurements and computation on previously measured qubits, including measured control qubits. This entry point does not fill in measurements automatically.
 
 ### 5.3 MPS simulator
 
@@ -273,7 +286,7 @@ options = {
 | --- | --- | --- |
 | `dtype` | `complex64`, `complex128` | Data precision of the state tensor |
 | `runtime.num_gpus` | Integer from 1 to 2 | Number of GPUs used |
-| `mps.max_bond_dimension` | Integer from 2 to 4096 | Maximum MPS bond dimension; larger values generally improve accuracy but consume more resources |
+| `mps.max_bond_dimension` | Integer from 2 to 1024 | Maximum MPS bond dimension; larger values generally improve accuracy but consume more resources |
 | `mps.abs_cutoff` | `1e-18` to `1e-2` | Absolute singular-value truncation threshold |
 | `mps.rel_cutoff` | `1e-18` to `1e-2` | Relative singular-value truncation threshold |
 | `mps.discarded_weight_cutoff` | `1e-18` to `1e-4` | Discarded-weight threshold |
@@ -363,9 +376,43 @@ result = Estimator(backend=backend, options=options).run(
 print("Hamiltonian:", result["evs"]["observable"])
 ```
 
+### 5.4 Local simulator FAS-LOCAL
+
+`FAS-LOCAL` is a full-amplitude statevector simulator installed with the SDK. It runs on the local CPU, never contacts the cloud platform, and needs no API Key. It uses the SDK interfaces for Sampler, Estimator, transpilation, and PennyLane devices, with at most 20 qubits and 1 to 100000 shots per run. The local restrictions below apply; backend-specific settings and result semantics from other backends do not automatically carry over.
+
+```python
+from qiskit import QuantumCircuit
+from gjq_client import LocalSimulator, Sampler, generate_preset_pass_manager
+
+backend = LocalSimulator()   # No service or account setup is needed
+
+circuit = QuantumCircuit(2)
+circuit.h(0)
+circuit.cx(0, 1)
+circuit.measure_all()
+isa_circuit = generate_preset_pass_manager(backend=backend, seed_transpiler=42).run(circuit)
+
+result = Sampler(backend=backend).run(isa_circuit, shots=1024).result()
+print("Counts:", result["counts"])
+print("Sampling seed:", result["seed"])
+
+# Rerunning with the recorded seed gives identical counts.
+again = Sampler(backend=backend, options={"seed": result["seed"]}).run(isa_circuit, shots=1024).result()
+assert again["counts"] == result["counts"]
+```
+
+Notes:
+
+- Every run records the sampling seed it used in the result's `seed` field; one is generated automatically unless you pass `options={"seed": ...}`. Seeds must be integers from `0` to `2**64-1`; booleans are not accepted. Reproducing a result also requires the same circuit (fix `seed_transpiler` when transpiling), shots, and Qiskit/NumPy versions.
+- Sampler returns `counts`, `freq_res`, `prob_his`, and `seed`. Values in `counts` are integer shot frequencies. Keys follow **qubit order** (same as cloud FAS), with qubit 0 at the rightmost position; unmeasured qubits are reported as 0, and the bitstring width equals `circuit.num_qubits`.
+- Direct SDK Estimator derives expectation values from measurement counts and includes sampling error. It accepts `SparsePauliOp`, `Pauli`, or Pauli strings, supports only I/Z, and does not support named observable lists. Every qubit required by an observable must be measured, and observables are interpreted in qubit order (no classical-bit remapping). Permuted quantum-to-classical measurement mappings, partial measurement, and multiple classical registers are supported; repeated measurement of a qubit and overwriting a classical bit from multiple qubits are rejected.
+- `reset`, Sessions, the MPS `simulator_config`, and `amplitude_index` are not supported. No operation may follow a measurement on the same qubit, except a `barrier`. A circuit must contain an actual measurement instruction; declaring a classical register alone is not a measurement.
+- Simulation finishes synchronously before `run()` returns. Results and logs exist only in the memory of that local backend instance and can be read through the returned `RuntimeJob`. They cannot be retrieved through cloud task queries, another backend instance, or a restarted process.
+- An account-initialized service can also call `service.backend("FAS-LOCAL")`. That method returns a local backend, but creating the service itself still requires account configuration. `FAS-LOCAL` does not appear in `service.list_backends()` and is never chosen by `service.least_busy()`.
+
 ## 6. Session
 
-A Session can be created only on a backend whose `job_mode` contains `session`. Currently, only `Guoji08` supports both `job` and `session`; always rely on the real-time result. The valid range of `max_time` is 60 to 28,800 seconds.
+A Session can be created only on a backend whose `job_mode` contains `session`. Use the real-time result of `service.list_backends()` to determine support. The valid range of `max_time` is 60 to 28,800 seconds.
 A Session is designed for running multiple related jobs in succession. During its lifetime, those jobs share the same `session_id` and reuse the same exclusive backend resource instead of requesting resources separately for every job. The following example submits two circuits consecutively within one Session and then queries the Session status and associated jobs.
 
 ```python
@@ -402,9 +449,13 @@ with Session(backend=backend, max_time=3600) as session:
     print(f"Jobs in Session {session.session_id}:", session.tasks())
 ```
 
-Both job payloads carry the same `session_id`. Exiting the `with` block automatically closes the Session and releases its resources. A backend that does not support Sessions rejects the request during Session creation.
+Both job payloads carry the same `session_id`. Exiting the `with` block automatically closes the Session. A backend that does not support Sessions rejects the request during Session creation.
 
-Creating a Session directly with `session = Session(...)` keeps it available across subsequent code until `close()`, `cancel()`, or `max_time` expiry. Save both its `session_id` and backend name to query it later.
+Creating a Session directly with `session = Session(...)` keeps it available across subsequent code until `close()` or `max_time` expiry. Call `session.close()` explicitly when no more jobs will be submitted. Save both its `session_id` and backend name to query it later.
+
+After a Session closes, it no longer accepts new jobs. Queued jobs are cancelled, while running jobs continue until completion.
+
+**0.2.2 migration:** `Session.cancel()` and `RuntimeClient.cancel_session()` have been removed; use `close()` and `close_session()`. Repeating a successful `close()` returns the first server response without sending another request. A failed closing request is not retried automatically, and exiting a `with` block does not resend an already attempted close. Query the Session status before explicitly retrying if needed.
 
 ## 7. Querying jobs
 
@@ -412,7 +463,6 @@ Creating a Session directly with `session = Session(...)` keeps it available acr
 
 ```python
 from gjq_client import GJQRuntimeService
-from qiskit.quantum_info import SparsePauliOp
 
 service = GJQRuntimeService()
 # Retrieve all active jobs for the current user.
@@ -422,19 +472,27 @@ print("All active jobs for the current user:", tasks)
 # Replace your_task_id to retrieve the status of a specific job.
 task_id = "your_task_id"
 status = service.task_status(task_id)
-print(f"Status of job {task_id}: {status}") 
+print(f"Status of job {task_id}: {status}")
 
-# Sampler: query counts.
-counts = service.task_result(task_id)
-print(f"Sampling counts for job {task_id}: {counts}")
-
-# Estimator: query an observable.
-observable = SparsePauliOp("IZ")
-evs = service.task_result(task_id, observable=observable)
-print(f"Expectation value for job {task_id}: {evs}")
+# Sampler and Estimator both return the complete cloud task-result payload.
+if status == "DONE":
+    raw_result = service.task_result(task_id)
+    print(f"Complete cloud result for job {task_id}: {raw_result}")
 ```
 
-`service.task_status()` returns a status string rather than a dictionary containing `status`. `service.task_result()` returns simplified counts or evs. To retain complete response metadata, keep the `RuntimeJob` returned when the job is submitted and call `job.result()`.
+`service.task_status()` returns a status string. `service.task_result(task_id)` returns the same complete task-result payload as `RuntimeClient.task_result(task_id)`, following the client's unpacking rules and retaining all result fields, metadata, and nested structures. The outer HTTP response envelope is not included. A new service instance can query by task ID without a local submission record.
+
+This query does not wait for completion or make additional status or detail queries. Empty responses and exceptions from the underlying client pass through to the caller. To wait for completion and obtain the SDK-parsed result, keep the `RuntimeJob` returned at submission:
+
+```python
+# job is returned by Sampler.run(...) or Estimator.run(...).
+result = job.result(timeout=600)
+print(result)  # Read result["counts"] for Sampler or result["evs"] for Estimator.
+```
+
+Raw field locations depend on the backend. For example, MPS results may be under `raw_result["data"]` or `raw_result["result"]["data"]`, where `counts={"01": 1.0}` represents probabilities and `evs["observables"]={"Z0": -1.0}` contains cloud observable results. If the original Job retains `shots=32` for that task, `job.result()` can return integer `counts={"01": 32}` and retain the probabilities in `probabilities`. Other backends or older tasks may use different structures; inspect the actual response.
+
+**Migration (breaking change):** `service.task_result()` no longer returns counts/evs directly and no longer accepts `observable`; old keyword or positional argument calls raise `TypeError`. Callers that relied on printed status messages and `{}` must query status or handle client exceptions themselves. Use the submitted Job for SDK count conversion, observable-name mapping, weighted sums, and result validation. Querying by task ID alone does not promise to restore this context or return the same structure and values as `job.result()`.
 
 ### 7.2 Querying Sessions and their jobs
 
@@ -484,7 +542,7 @@ print("Expectation value:", circuit(theta))
 print("Gradient:", qml.grad(circuit)(theta))
 ```
 
-The PennyLane device supports `expval`, `var`, `probs`, `sample`, and `counts`. Gradient calculation may submit multiple cloud jobs, so allow sufficient time for queuing and execution. `SAS-CPU` and `SAS-GPU` return only a single amplitude and do not support the PennyLane device.
+The PennyLane device supports `expval`, `var`, `probs`, `sample`, and `counts`. With a cloud backend, gradient calculation may submit multiple cloud jobs, so allow sufficient time for queuing and execution. With `LocalSimulator()`, execution stays on the local machine and does not enter a cloud queue. `SAS-CPU` and `SAS-GPU` return only a single amplitude and do not support the PennyLane device.
 
 Computational-basis `counts`, `sample`, and `probs` follow the `wires` order explicitly requested by each measurement. For `wires=[0, 1]`, the leftmost count bit represents wire 0. Raw Runtime counts retain Qiskit's little-endian convention.
 
@@ -532,21 +590,28 @@ print("Backend retrieved through the PQC channel:", backend.name)
 ```
 
 After initialization with an API Key succeeds for the first time, the PQC switch and certificate fingerprint are written to the local cache with the account parameters. Later calls to `GJQRuntimeService()` reuse that configuration.
-The SDK encrypts API communication through the Gateway and verifies its server certificate fingerprint. PQC mode does not change quantum circuits, backend capabilities, job semantics, or result formats.
+PQC communication proceeds as follows:
+
+1. The SDK calls `GET /cert` to obtain the Gateway's ML-DSA65 self-signed certificate and validates its signature, validity period, and preconfigured fingerprint.
+2. The SDK calls `POST /handshake`, negotiates a shared secret through ML-KEM768, and derives an AES-256 session key using SHAKE-256.
+3. Subsequent API requests and responses are transported through `POST /proxy`; payloads are encrypted with AES-256-GCM and integrity-checked.
+   The client completes a PQC handshake whenever it creates a RuntimeService. A certificate-fingerprint mismatch, expired certificate, or invalid signature causes the connection to be rejected immediately. Network errors and some server errors are handled according to the SDK retry policy. PQC mode protects application-layer communication from the client to the Gateway; it does not change quantum circuits, backend capabilities, job semantics, or result formats.
 
 Common troubleshooting steps:
 
 - Connection failure during initialization: confirm that the Gateway is running and that the client can reach its configured address.
 
-- Certificate fingerprint mismatch: stop the connection and verify the fingerprint with [platform support](mailto:quantumcloud@tgqs.net). Keep certificate verification enabled.
+- Certificate fingerprint mismatch: stop the connection and verify the fingerprint with the operations team. Do not bypass verification.
 
-- Standard mode works but PQC mode does not: contact platform support to confirm the Gateway configuration and availability.
+- Standard mode works but PQC mode does not: check the Gateway's `/cert`, `/handshake`, and `/proxy` services separately, as well as its network connectivity to the cloud-platform API.
 
 ## 10. Frequently asked questions
 
-- An API Key must be supplied on the first run. Calling `GJQRuntimeService()` when the cache file is missing raises `ConfigurationError`.
+- An API Key must be supplied when initializing the cloud `GJQRuntimeService` for the first time. Calling `GJQRuntimeService()` when the cache file is missing raises `ConfigurationError`. Creating `LocalSimulator()` directly requires neither an API Key nor an account cache.
 
-- Sampler and FAS/SAS Estimator circuits must contain measurement gates. Guoji08 `Estimator.run()` fills terminal measurement coverage automatically; MPS Estimator does not require measurement gates.
+- Sampler and FAS/SAS Estimator circuits must contain measurement gates. Guoji04/Guoji08 `Estimator.run()` fills terminal measurement coverage automatically; MPS Estimator does not require measurement gates.
+
+- MPS expert `max_bond_dimension` must be an integer in `[2, 1024]`. Values above 1024 are rejected locally by the SDK before task submission; they are not automatically reduced to 1024.
 
 - MPS requires at least two qubits and must be given `simulator_config`.
 
@@ -556,7 +621,7 @@ Common troubleshooting steps:
 
 - Quantum-hardware configuration, properties, and availability come from remote services. Retry later if a transient error occurs.
 
-- PennyLane automatic differentiation may trigger multiple cloud jobs. Set a suitable `timeout` based on circuit size, shots, and the backend queue.
+- With a cloud backend, PennyLane automatic differentiation may trigger multiple cloud jobs. Set a suitable `timeout` based on circuit size, shots, and the backend queue. Local `FAS-LOCAL` execution does not involve a cloud queue.
 
 - PQC mode requires a reachable Gateway and the correct server-certificate fingerprint. It does not affect backend availability or queue time.
 

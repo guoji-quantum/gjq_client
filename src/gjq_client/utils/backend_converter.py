@@ -66,7 +66,9 @@ def convert_to_target(  # type: ignore[no-untyped-def]
             "Backend defaults have been completely from removed IBM Backends. They will be ignored."
         )
 
-    required = ["measure", "delay", "reset"]
+    required = ["measure", "delay"]
+    if configuration.backend_name != "FAS-LOCAL":
+        required.append("reset")
 
     # 加载 qiskit 对象表示
     qiskit_inst_mapping = get_standard_gate_name_mapping()

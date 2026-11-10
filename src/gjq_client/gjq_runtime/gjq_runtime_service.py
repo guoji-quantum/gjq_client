@@ -15,8 +15,7 @@ from ..utils.exceptions import (
 )
 from ..client.client_parameters import ClientParameters
 from ..client.runtime import RuntimeClient
-from typing import Any
-from .runtime_job import RuntimeJob, API_TO_JOB_STATUS
+from .runtime_job import API_TO_JOB_STATUS
 
 logger = logging.getLogger(__name__)
 
@@ -213,6 +212,9 @@ class GJQRuntimeService:
         return GJQBackend(config,self,self._client)
 
     def backend(self,backend_name):
+        from ..local import LOCAL_BACKEND_NAME, LocalSimulator
+        if backend_name == LOCAL_BACKEND_NAME:
+            return LocalSimulator()
         return self._create_backend_obj(backend_name)
 
     def least_busy(self):
@@ -260,38 +262,12 @@ class GJQRuntimeService:
         """Return the tasks submitted under a Session."""
         return self._client.session_tasks(session_id, backend_name)
     
-    def task_result(self, task_id, observable: Any = None):
+    def task_result(self, task_id: str) -> dict:
+        """Return the full cloud payload from ``RuntimeClient.task_result``.
+
+        Preserve backend-specific fields and nesting without waiting for task
+        completion. Empty responses and client exceptions pass through unchanged.
+        The ``observable`` argument is no longer supported; use the submitted
+        ``RuntimeJob.result()`` for parsed counts and expectation values.
         """
-        获取任务结果
-        """ 
-        status=self.task_status(task_id)
-        if status in ["INITIALIZING", "QUEUED", "RUNNING"]:
-            print(f"Task {task_id} is running (正在运行中), status (状态): {status}")
-            return {}
-        if status == "ERROR":
-            print(f"Task {task_id} execution failed (任务执行失败), error code (错误代码): {self._client.task_status(task_id).get('error_code')}")
-            return {}
-        if status == "DONE":
-            if observable is not None and not isinstance(observable, list):
-                from qiskit.quantum_info import SparsePauliOp
-
-                observable = SparsePauliOp(observable)
-            detail = self._client.task_detail(task_id)
-            context = {}
-            if isinstance(detail, dict):
-                context = {
-                    "backend_name": detail.get("backend_name"),
-                    "shots": detail.get("shots"),
-                }
-            if observable is not None:
-                context["circuit_type"] = "estimator"
-                if context.get("backend_name") == "Guoji08" and not isinstance(observable, list):
-                    from .submit_payload import sparsepauliop_to_mps_observables
-
-                    observable = sparsepauliop_to_mps_observables(observable)
-            job = RuntimeJob(self._client, task_id, observable, **context)
-            result=job.result()
-            if observable is not None or ("evs" in result and "counts" not in result):
-                return result.get('evs')
-            else:
-                return result.get('counts')
+        return self._client.task_result(task_id)

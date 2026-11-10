@@ -2,22 +2,39 @@
 
 `gjq-client` is the Python SDK for CETC International Cornerstone Quantum Industry
 (Suzhou) Co., Ltd. (CETC-ICQ) Cloud Platform. It provides access to quantum hardware
-and cloud simulators through Qiskit 2.3, with optional PennyLane integration.
+and cloud simulators through Qiskit 2.3, with a local CPU simulator and optional
+PennyLane integration.
 
-## What's New in 0.2.1
+## What's New in 0.2.2
 
-- **Richer Estimator observables:** MPS and Guoji08 support finite real
-  coefficients, multi-qubit Pauli words, identity terms, and named Hamiltonian
-  sums.
+- **Local simulation:** Run up to 20 qubits on your own CPU with `FAS-LOCAL`,
+  without an API key or network access. Sampling seeds are recorded for replay.
 
-- **PennyLane results and gradients:** Sampling results follow the requested
-  wire order, with corrected MPS Pauli-sum variance gradients and transpiled
-  measurement mapping.
+- **Guoji04 Estimator:** Corrected multi-observable encoding and named result
+  reconstruction, including real coefficients and Pauli sums.
 
-- **Session queries:** List active Sessions and retrieve Session details and
-  related jobs by ID and backend name.
+- **API changes:** Sessions now use `close()` exclusively. Service task queries
+  return complete result dictionaries; use the submitted Job for parsed results.
+  MPS expert bond dimensions are limited to integers from 2 to 1024.
 
-See the [0.2.1 changelog](https://github.com/guoji-quantum/gjq_client/blob/main/docs/Changelog%20v0.2.1.md) for details.
+Try a local Bell-state simulation:
+
+```python
+from qiskit import QuantumCircuit
+from gjq_client import LocalSimulator, Sampler
+
+backend = LocalSimulator()
+circuit = QuantumCircuit(2)
+circuit.h(0)
+circuit.cx(0, 1)
+circuit.measure_all()
+
+result = Sampler(backend=backend, options={"seed": 42}).run(circuit, shots=1024).result()
+print("Counts:", result["counts"])
+print("Sampling seed:", result["seed"])
+```
+
+See the [0.2.2 changelog](https://github.com/guoji-quantum/gjq_client/blob/main/docs/Changelog%20v0.2.2.md) for details.
 
 ## 📦 Installation
 
@@ -27,6 +44,9 @@ Requirements: `Python >= 3.12`, `Qiskit == 2.3.0`, `qiskit-ibm-runtime == 0.45.0
 This release requires Qiskit 2.3.0. The optional PennyLane integration requires
 `PennyLane >= 0.45.1, < 0.46` and `pennylane-qiskit == 0.45.0`.
 The installation commands below install the required dependencies automatically.
+
+This repository checkout includes Windows x64 binaries and requires CPython 3.12
+or later. On Linux, macOS, or Windows ARM64, install the matching PyPI release.
 
 ```bash
 # Install via PyPI
@@ -78,6 +98,13 @@ result = job.result()
 print("Measurement results:", result.get("counts"))
 ```
 
+Keep the submitted `job` to wait for completion and obtain parsed counts or
+expectation values through `job.result()`. `service.task_result(task_id)` instead
+returns the complete task-result dictionary supplied by the cloud client,
+preserving backend fields and nested structures. It does not wait for completion
+and no longer accepts `observable`; empty results and client exceptions pass
+through to the caller.
+
 ## Session: Exclusive Backend Resources
 
 Use a Session to run related jobs with exclusive backend resources while the
@@ -103,17 +130,41 @@ print(service.session_detail(session_id, backend.name))
 print(service.session_tasks(session_id, backend.name))
 
 # The Session remains available for later jobs until it is closed or expires.
-# Release its backend resources explicitly when no more jobs will be submitted.
+# Close the Session explicitly when no more jobs will be submitted.
 session.close()
 ```
 
-`max_time` is specified in seconds and still limits the Session lifetime. Creating
-a Session directly keeps it open across subsequent code until `close()` or
-`cancel()` is called, or the lifetime expires. If automatic cleanup at the end of
-a code block is preferred, use `with Session(...) as session`; leaving that block
-closes the Session. You can also use `Estimator(mode=session)` for expectation-value
-jobs. `service.list_sessions()` returns the current user's pending and active
-Sessions.
+`max_time` is specified in seconds and still limits the Session lifetime. Use
+`session.close()` to close a Session explicitly, or `with Session(...) as session`
+to close it automatically when the block exits. You can also use
+`Estimator(mode=session)` for expectation-value jobs. `service.list_sessions()`
+returns the current user's pending and active Sessions.
+
+`Session.cancel()` and `RuntimeClient.cancel_session()` have been removed. Use
+`close()` or `close_session()` respectively. A failed closing request is not
+automatically resent; retry explicitly only when needed. Closing a Session stops
+it from accepting new jobs, cancels its queued jobs, and allows jobs already
+running to continue to completion. The same semantics apply when a Session closes
+automatically on context exit.
+
+## Local Simulator: FAS-LOCAL
+
+`FAS-LOCAL` is a full-amplitude statevector simulator for up to 20 qubits and
+1 to 100000 shots per run. Create `LocalSimulator()` directly for offline use,
+as shown above. An initialized cloud service can also return it through
+`service.backend("FAS-LOCAL")`; it is not listed by `service.list_backends()`.
+
+It supports Sampler, transpilation, PennyLane devices, and I/Z Estimator
+observables supplied as Pauli strings, `Pauli`, or `SparsePauliOp`. Named
+observable lists, `reset`, dynamic control flow, Sessions, `simulator_config`, and
+`amplitude_index` are unsupported. Circuits must contain actual measurements.
+Counts use qubit order with q0 on the right, preserve the circuit width, and fill
+unmeasured qubits with 0. Job results remain in the owning backend instance's
+memory and cannot be recovered through a cloud service or a new instance.
+
+Every result records its sampling seed in `result["seed"]`, generated automatically
+when omitted. Replay it through `options={"seed": ...}` with the same circuit,
+shots, and Qiskit/NumPy versions. Fix the transpilation seed as well if transpiling.
 
 ## MPS Simulator: Up to 1,000 Qubits
 
@@ -147,7 +198,10 @@ print("Probabilities:", result["probabilities"])
 ```
 
 Use `fast`, `balanced`, or `accurate` to choose a speed/accuracy tradeoff;
-`expert` is available for custom settings. MPS performance and accuracy depend
+`expert` is available for custom settings. Its
+`simulator_config.mps.max_bond_dimension` must be an integer in `[2, 1024]`;
+out-of-range configurations are rejected locally before task submission rather
+than clipped automatically. MPS performance and accuracy depend
 on circuit depth and entanglement, so the 1,000-qubit capacity does not imply
 that every circuit of that size is practical. MPS Sampler results expose integer
 shot frequencies in `counts` and retain the normalized distribution separately
@@ -181,6 +235,9 @@ print("Hamiltonian expectation:", result["evs"]["observable"])
 Install the optional dependency with `pip install "gjq-client[pennylane]"`.
 Then use the `gjq` device to run a PennyLane QNode on an available FAS backend or
 quantum hardware. For MPS, use the replacement device definition below:
+
+For offline QNodes, import `LocalSimulator` from `gjq_client` and pass
+`backend=LocalSimulator()` to the device instead.
 
 ```python
 import pennylane as qml
@@ -245,7 +302,8 @@ service = GJQRuntimeService(
 )
 ```
 
-A local [PQC Gateway](https://github.com/guoji-quantum/gjq_client) must be running.
+A reachable PQC Gateway is required. By default, the SDK uses the platform's
+configured Gateway.
 The SDK routes every request (authentication, backend queries, task submission,
 result retrieval) through the Gateway's AES-256-GCM encrypted proxy channel.
 
@@ -255,11 +313,12 @@ ML-KEM768 key encapsulation. All subsequent API calls are encrypted with AES-256
 and proxied through the Gateway, which decrypts, forwards to the real cloud
 backend, and encrypts the response.
 
-**Security:** The server certificate fingerprint is pinned on the client side —
-any mismatch is rejected immediately (equivalent to TLS certificate-chain
-verification failure).
+**Security:** The server certificate fingerprint is pinned on the client side;
+a mismatch is rejected.
 
 ## Changelog
+
+- [Version 0.2.2](https://github.com/guoji-quantum/gjq_client/blob/main/docs/Changelog%20v0.2.2.md)
 
 - [Version 0.2.1](https://github.com/guoji-quantum/gjq_client/blob/main/docs/Changelog%20v0.2.1.md)
 

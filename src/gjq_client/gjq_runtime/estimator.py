@@ -10,7 +10,7 @@ from qiskit.qasm2 import dumps
 from qiskit.quantum_info import Pauli, SparsePauliOp
 from .runtime_job import RuntimeJob
 from .session import Session
-from .guoji_estimator import prepare_guoji_measurements
+from .guoji_estimator import GUOJI_ESTIMATOR_BACKENDS, prepare_guoji_measurements
 from .submit_payload import (
     build_submit_payload,
     ensure_circuit_has_measure,
@@ -74,7 +74,7 @@ class Estimator():
     多项 SparsePauliOp 作为一个名为 observable 的整体算符提交；
     需要多个独立结果时使用具名观测量列表。
     MPS 直接从模拟状态计算期望值，无需 measure 门，也不要求观测比特被测量。
-    Guoji08 使用相同的具名求和结果语义，并自动规范末端测量；真机要求正数 shots。
+    Guoji04/Guoji08 使用相同的具名求和结果语义，并自动规范末端测量；要求正数 shots。
     """
 
     def __init__(
@@ -113,6 +113,11 @@ class Estimator():
         ensure_run_fits_backend(circuit, shots, self._backend)
         if observable is None:
             raise ValueError("observable is required for Estimator")
+        if self._backend.name == "FAS-LOCAL" and isinstance(observable, list):
+            raise ValueError(
+                "FAS-LOCAL Estimator does not support named observable lists; "
+                "use a SparsePauliOp, Pauli, or Pauli string"
+            )
         physical_observable = isinstance(observable, str)
         if not isinstance(observable, (SparsePauliOp, list)):
             try:
@@ -137,20 +142,25 @@ class Estimator():
             observable = _as_z_basis_observable(observable)
             _result_observable = _as_z_basis_observable(result_observable)
         if isinstance(observable, list):
-            observables = deepcopy(observable) if self._backend.name == "Guoji08" else observable
-        elif self._backend.name in {"MPS", "Guoji08"}:
+            observables = deepcopy(observable) if self._backend.name in GUOJI_ESTIMATOR_BACKENDS else observable
+        elif self._backend.name == "MPS" or self._backend.name in GUOJI_ESTIMATOR_BACKENDS:
             observables = sparsepauliop_to_mps_observables(observable)
         else:
             observables = sparsepauliop_to_observables(observable)
         validate_observables(observables, circuit.num_qubits)
-        if self._backend.name == "Guoji08":
+        if self._backend.name in GUOJI_ESTIMATOR_BACKENDS:
             circuit = prepare_guoji_measurements(circuit, observables)
         if self._backend.name != "MPS":
             ensure_circuit_has_measure(circuit)
             if _uses_client_side_expectation_values(self._backend):
                 validate_z_basis_observables(observables)
-            if self._backend.name != "Guoji08":
+            if self._backend.name not in GUOJI_ESTIMATOR_BACKENDS:
                 ensure_observables_are_measured(circuit, observables)
+        if self._backend.name == "FAS-LOCAL":
+            # counts 已按量子位序输出，与云端 FAS 一致；提交前只校验测量一一对应。
+            from ..local.client import measurement_clbit_to_qubit
+
+            measurement_clbit_to_qubit(circuit)
         instructions = circuit_to_json_layers(
             circuit,
             supported_operations=getattr(self._backend, "operation_names", ()),
@@ -188,14 +198,14 @@ class Estimator():
         return RuntimeJob(
             self._backend._api_client,
             job_id,
-            observables if self._backend.name == "Guoji08" else (
+            observables if self._backend.name in GUOJI_ESTIMATOR_BACKENDS else (
                 _result_observable if _result_observable is not None else observable
             ),
             backend_name=self._backend.name,
             shots=shots,
             circuit_type="estimator",
             num_qubits=(
-                tasks["quantum-num"] if self._backend.name == "Guoji08"
+                tasks["quantum-num"] if self._backend.name in GUOJI_ESTIMATOR_BACKENDS
                 else circuit.num_qubits
             ),
         )

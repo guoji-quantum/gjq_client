@@ -1,10 +1,12 @@
-"""Guoji08's native Estimator wire encoding and named-result reconstruction."""
+"""Guoji04/Guoji08 native Estimator encoding and named-result reconstruction."""
 
 from math import isfinite
 
 from qiskit import ClassicalRegister, QuantumCircuit
 
 from ..utils.exceptions import GJQValidationError, RuntimeJobFailureError
+
+GUOJI_ESTIMATOR_BACKENDS = frozenset({"Guoji04", "Guoji08"})
 
 
 def _pauli_label(term: dict, num_qubits: int) -> str:
@@ -47,7 +49,7 @@ def prepare_guoji_measurements(
             measured.update(qubits)
         elif instruction.operation.name != "barrier" and measured.intersection(qubits):
             raise GJQValidationError(
-                "Guoji08 Estimator does not support gates after measurement on the same qubit"
+                "Guoji Estimator does not support gates after measurement on the same qubit"
             )
     observable_qubits = {
         qubit
@@ -60,7 +62,7 @@ def prepare_guoji_measurements(
     mapping = final_index_layout() if callable(final_index_layout) else None
     logical_width = len(mapping) if mapping else circuit.num_qubits
     width = max(logical_width, max(occupied | observable_qubits, default=0) + 1)
-    # Guoji08's Pauli positions require a complete measurement span, including I sites.
+    # Guoji Pauli positions require a complete measurement span, including I sites.
     # Unused transpiler ancillas outside that span do not belong to the request.
     result = circuit.remove_final_measurements(inplace=False)
     names = {register.name for register in result.qregs + result.cregs}
@@ -88,12 +90,13 @@ def validate_guoji_measurements(payload: dict) -> None:
                 }
                 if measured.intersection(qubits):
                     raise GJQValidationError(
-                        "Guoji08 Estimator does not support gates after measurement on the same qubit"
+                        f"{payload.get('device_name', '')} Estimator does not support "
+                        "gates after measurement on the same qubit"
                     )
     missing = set(range(payload["quantum-num"])) - measured
     if missing:
         raise GJQValidationError(
-            f"Guoji08 Estimator requires a complete measurement span; missing {sorted(missing)}. "
+            f"Guoji Estimator requires a complete measurement span; missing {sorted(missing)}. "
             "Use Estimator.run to prepare terminal measurements automatically."
         )
 
@@ -105,10 +108,10 @@ def decode_guoji_expectations(
     if isinstance(raw_evs, dict) and "observables" in raw_evs:
         raw_evs = raw_evs["observables"]
     if not isinstance(raw_evs, dict):
-        raise RuntimeJobFailureError("Guoji08 result missing per-Pauli observable values")
+        raise RuntimeJobFailureError("Guoji result missing per-Pauli observable values")
     if any(type(value) not in (int, float) or not isfinite(value)
            for value in raw_evs.values()):
-        raise RuntimeJobFailureError("Invalid Guoji08 observable values")
+        raise RuntimeJobFailureError("Invalid Guoji observable values")
     result = {}
     for observable in observables:
         coefficients = {}
@@ -125,9 +128,9 @@ def decode_guoji_expectations(
                 value += coefficient * raw_evs[label]
             else:
                 raise RuntimeJobFailureError(
-                    f"Guoji08 result missing observable values: {observable['name']} ({label})"
+                    f"Guoji result missing observable values: {observable['name']} ({label})"
                 )
         if not isfinite(value):
-            raise RuntimeJobFailureError("Invalid Guoji08 observable sum")
+            raise RuntimeJobFailureError("Invalid Guoji observable sum")
         result[observable["name"]] = value
     return result

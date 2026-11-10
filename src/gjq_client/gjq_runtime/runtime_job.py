@@ -10,6 +10,7 @@ from typing import Any, Literal
 import time
 
 from ..client.runtime import RuntimeClient
+from .guoji_estimator import GUOJI_ESTIMATOR_BACKENDS
 from ..utils.exceptions import (
     RuntimeJobFailureError,
     RuntimeJobTimeoutError,
@@ -230,7 +231,9 @@ def _evs_from_result(result: dict) -> tuple[bool, Any]:
     return True, evs
 
 
-def _guoji_result_width(raw_evs: object, observables: list[dict]) -> int:
+def _guoji_result_width(
+    raw_evs: object, observables: list[dict], backend_name: str = ""
+) -> int:
     """Recover a missing task width only from the cloud's full-width Pauli keys."""
     if isinstance(raw_evs, dict) and "observables" in raw_evs:
         raw_evs = raw_evs["observables"]
@@ -238,14 +241,16 @@ def _guoji_result_width(raw_evs: object, observables: list[dict]) -> int:
         not isinstance(label, str) or not label or set(label) - set("IXYZ")
         for label in raw_evs
     ):
-        raise RuntimeJobFailureError("Invalid Guoji08 full-width Pauli labels")
+        raise RuntimeJobFailureError(f"Invalid {backend_name} full-width Pauli labels")
     widths = {len(label) for label in raw_evs}
     requested_width = max(
         qubit for observable in observables
         for term in observable["terms"] for qubit in term["qubits"]
     ) + 1
     if len(widths) > 1 or (widths and next(iter(widths)) < requested_width):
-        raise RuntimeJobFailureError("Guoji08 Pauli width does not match the requested observables")
+        raise RuntimeJobFailureError(
+            f"{backend_name} Pauli width does not match the requested observables"
+        )
     # Empty tables are usable only for identity/zero/cancelled terms.  The decoder
     # still rejects every nonzero nonidentity term whose Pauli value is absent.
     return next(iter(widths)) if widths else requested_width
@@ -314,7 +319,7 @@ class RuntimeJob():
         if not isinstance(observables, list):
             return
         if self._backend_name in (None, "MPS") or (
-            self._backend_name == "Guoji08" and self._num_qubits is not None
+            self._backend_name in GUOJI_ESTIMATOR_BACKENDS and self._num_qubits is not None
         ):
             if not isinstance(evs, dict):
                 raise RuntimeJobFailureError("Task result missing named observable values")
@@ -434,7 +439,7 @@ class RuntimeJob():
                 self._result[result_key] = sampler_data
             has_server_evs, server_evs = False, None
         elif (
-            self._backend_name == "Guoji08"
+            self._backend_name in GUOJI_ESTIMATOR_BACKENDS
             and isinstance(self._observable, list)
             and (self._num_qubits is not None or self._circuit_type == "estimator")
             and self._result.get("evs") is not None
@@ -442,7 +447,9 @@ class RuntimeJob():
             from .guoji_estimator import decode_guoji_expectations
 
             if self._num_qubits is None:
-                self._num_qubits = _guoji_result_width(self._result["evs"], self._observable)
+                self._num_qubits = _guoji_result_width(
+                    self._result["evs"], self._observable, self._backend_name or ""
+                )
             server_evs = decode_guoji_expectations(
                 self._result["evs"], self._observable, self._num_qubits
             )

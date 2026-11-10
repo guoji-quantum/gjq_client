@@ -17,6 +17,11 @@ dist/
 !/src/gjq_client/client/client_parameters.pyd
 !/src/gjq_client/client/runtime.pyd
 
+# These modules are distributed only as released extension modules.
+/src/gjq_client/client/backend_url_config.py
+/src/gjq_client/client/client_parameters.py
+/src/gjq_client/client/runtime.py
+
 # virtualenv
 .venv/
 venv/

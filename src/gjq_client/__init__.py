@@ -10,6 +10,7 @@ from .gjq_runtime.gjq_runtime_service import GJQRuntimeService
 from .gjq_runtime.session import Session
 from .gjq_runtime.sampler import Sampler
 from .gjq_runtime.estimator import Estimator
+from .local import LocalSimulator
 from .utils.generate_preset_pass_manager import generate_preset_pass_manager
 
 
@@ -18,5 +19,6 @@ __all__ = [
     "Session",
     "Sampler",
     "Estimator",
+    "LocalSimulator",
     "generate_preset_pass_manager",
 ]

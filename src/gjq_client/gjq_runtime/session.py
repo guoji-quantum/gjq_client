@@ -23,6 +23,7 @@ class Session:
         self.session_id = response.get("session_id")
         if not self.session_id:
             raise RuntimeError("Session creation failed (创建 Session 失败)")
+        self._close_attempted = False
         self._closed = False
 
     def details(self) -> dict:
@@ -32,32 +33,33 @@ class Session:
     @property
     def status(self) -> str | None:
         """Return the current server-side Session status."""
-        return self.details().get("status")
+        details = self.details()
+        session_info = details.get("sessionInfo")
+        if isinstance(session_info, dict):
+            return session_info.get("status")
+        return details.get("status")
 
     def tasks(self) -> list[dict]:
         """Return the tasks under this Session."""
         return self._api_client.session_tasks(self.session_id, self.backend.name)
 
     def close(self) -> dict:
-        """Close the Session."""
-        if self._closed:
-            return {"session_id": self.session_id, "status": "closed"}
-        result = self._api_client.close_session(self.session_id, self.backend.name)
-        self._closed = True
-        return result
+        """Close the Session to new submissions.
 
-    def cancel(self) -> dict:
-        """Cancel the Session."""
+        The server cancels queued jobs and lets running jobs finish. This method
+        does not poll those running jobs for completion.
+        """
         if self._closed:
-            # 云平台 cancel 实测终态为 closed（与 close 相同）
-            return {"session_id": self.session_id, "status": "closed"}
-        result = self._api_client.cancel_session(self.session_id, self.backend.name)
+            return self._close_result
+        self._close_attempted = True
+        self._close_result = self._api_client.close_session(self.session_id, self.backend.name)
         self._closed = True
-        return result
+        return self._close_result
 
     def __enter__(self) -> "Session":
         return self
 
     def __exit__(self, *args):
-        if not self._closed:
+        # A failed close may have reached the server. Only explicit calls may retry.
+        if not self._close_attempted:
             self.close()

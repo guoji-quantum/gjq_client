@@ -10,6 +10,7 @@ import warnings
 from qiskit import QuantumCircuit
 from qiskit.quantum_info import SparsePauliOp
 
+from .guoji_estimator import GUOJI_ESTIMATOR_BACKENDS
 from ..utils.exceptions import GJQValidationError as ValueError
 
 
@@ -68,7 +69,7 @@ def _validate_runtime(runtime: Any) -> None:
 
 
 def validate_simulator_config(config: Any) -> None:
-    """Validate MPS simulator_config nested in Estimator/Sampler options."""
+    """Validate MPS options, including expert bond dimensions in [2, 1024]."""
     if not isinstance(config, dict):
         raise ValueError("simulator_config must be a dict")
     preset = config.get("preset")
@@ -92,7 +93,7 @@ def validate_simulator_config(config: Any) -> None:
     if not isinstance(mps, dict):
         raise ValueError("simulator_config.mps must be a dict")
     _require_keys(mps, _MPS_KEYS, "simulator_config.mps")
-    _integer_in_range(mps["max_bond_dimension"], 2, 4096, "simulator_config.mps.max_bond_dimension")
+    _integer_in_range(mps["max_bond_dimension"], 2, 1024, "simulator_config.mps.max_bond_dimension")
     for key in ("abs_cutoff", "rel_cutoff", "discarded_weight_cutoff"):
         maximum = 1e-4 if key == "discarded_weight_cutoff" else 1e-2
         _number_in_range(mps[key], 1e-18, maximum, f"simulator_config.mps.{key}")
@@ -439,7 +440,7 @@ def build_submit_payload(
     elif amplitude_index is not None:
         raise ValueError("amplitude_index is only supported by SAS-CPU and SAS-GPU")
     tasks.pop("sparsepauliop", None)
-    if backend_name == "Guoji08" and circuit_type == "estimator":
+    if backend_name in GUOJI_ESTIMATOR_BACKENDS and circuit_type == "estimator":
         from .guoji_estimator import encode_guoji_observables
 
         observables = encode_guoji_observables(observables, tasks["quantum-num"])

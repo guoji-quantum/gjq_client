@@ -355,6 +355,7 @@ class RetrySession:
                     )
                     time.sleep(wait_time)
                     continue
+                break
 
             except requests.ConnectionError as e:
                 last_exception = e
@@ -366,10 +367,11 @@ class RetrySession:
                     )
                     time.sleep(wait_time)
                     continue
+                break
 
         if isinstance(last_exception, requests.Timeout):
             raise GJQTimeoutError(
-                f"PQC proxy POST {url} timed out after {self._max_retries + 1} attempts"
+                f"PQC proxy POST {url} timed out after {attempt + 1} attempts"
             ) from last_exception
 
         if last_exception is None:
@@ -380,7 +382,7 @@ class RetrySession:
             )
 
         raise NetworkError(
-            f"PQC proxy POST {url} failed after {self._max_retries + 1} attempts: {last_exception}"
+            f"PQC proxy POST {url} failed after {attempt + 1} attempts: {last_exception}"
         ) from last_exception
 
     def _rehandshake(self) -> None:
@@ -449,11 +451,13 @@ class RetrySession:
 
     @staticmethod
     def _allows_retry(method: str, path: str) -> bool:
-        """Task submission and Session creation must not be duplicated."""
+        """Do not replay task submission or Session creation and closure."""
         path = path or ""
         if any(marker in path for marker in _NON_RETRIABLE_PATH_MARKERS):
             return False
-        if method.upper() == "POST" and path.rstrip("/").endswith("/sessions"):
+        if method.upper() == "POST" and path.rstrip("/").endswith(
+            ("/sessions", "/sessions/closeSession")
+        ):
             return False
         return True
 

@@ -40,13 +40,14 @@ class Session(RestAdapterBase):
             params={"backend_name": backend_name},
         )
 
-    def update_status(
-        self, session_id: str, backend_name: str, status: str
-    ) -> requests.Response:
-        """Update a Session status."""
+    def close(self, session_id: str, device_name: str) -> requests.Response:
+        """Request Session closure on its device.
+
+        The server rejects new jobs, cancels queued jobs, and lets running jobs
+        finish.
+        """
         return self.session.request(
-            "PATCH",
-            f"{self.get_url('sessions')}/{session_id}",
-            params={"backend_name": backend_name},
-            json={"status": status},
+            "POST",
+            f"{self.get_url('sessions')}/closeSession",
+            json={"sessionId": session_id, "deviceName": device_name},
         )
